@@ -1,0 +1,127 @@
+/* src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom base styles (ví dụ) */
+body {
+  @apply font-sans antialiased text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 overflow-x-hidden;
+  /* Thêm overflow-x-hidden để tránh scroll ngang không mong muốn nếu có gì đó tràn ra ngoài */
+}
+
+/* Đảm bảo html và body chiếm full height để min-h-screen hoạt động đúng */
+html, body, #root {
+  @apply h-full;
+}
+
+#root {
+  @apply flex flex-col; /* Giúp #root cũng linh hoạt như body để MainLayout hoạt động tốt */
+}
+
+/* CSS cho text shadow (nếu bạn không muốn dùng inline style) */
+.text-shadow-strong {
+  text-shadow: 0 3px 6px rgba(0, 0, 0, 0.75);
+}
+.text-shadow-light {
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.65);
+}
+
+.admin-input, .admin-select {
+  @apply block w-full pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md leading-5 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-primary-green focus:border-primary-green sm:text-sm;
+}
+.th-admin {
+  @apply px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider;
+}
+.td-admin {
+  @apply px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300;
+}
+
+@layer utilities {
+  @keyframes modalShow {
+    0% {
+      opacity: 0;
+      transform: scale(0.95) translateY(-10px);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+  .animate-modalShow {
+    animation: modalShow 0.3s ease-out forwards;
+  }
+
+ 
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1; 
+    border-radius: 3px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af; 
+  }
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #4b5563; 
+  }
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #374151; 
+  }
+}
+
+/* Tùy chỉnh cho hình ảnh bên trong nội dung bài viết (class .prose) */
+.prose img { /* Hoặc .prose figure img nếu ảnh luôn nằm trong figure */
+  max-width: 100%; /* Mặc định của prose, đảm bảo responsive */
+  height: auto;    /* Giữ tỷ lệ khung hình */
+  display: block;  /* Loại bỏ khoảng trắng thừa bên dưới ảnh inline */
+  margin-left: auto;
+  margin-right: auto;
+  border-radius: 0.5rem; /* theme('borderRadius.lg') */
+  box-shadow: theme('boxShadow.md');
+}
+
+/* Nếu bạn muốn giới hạn chiều rộng tối đa cụ thể cho tất cả ảnh trong bài viết */
+.prose img.content-image-limited { /* Thêm class này vào ảnh trong HTML nếu cần */
+  max-width: 720px; /* Ví dụ: Giới hạn chiều rộng tối đa là 720px */
+}
+
+/* Hoặc bạn có thể style trực tiếp cho tất cả ảnh trong .prose nếu muốn tất cả bị giới hạn */
+/* .prose img {
+  max-width: 720px !important; /* Dùng !important nếu bị ghi đè
+  height: auto;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  border-radius: 0.5rem;
+  box-shadow: theme('boxShadow.md');
+} */
+
+.prose figure {
+  margin-top: 2em;
+  margin-bottom: 2em;
+}
+
+.prose figcaption {
+  @apply text-sm text-center text-gray-500 dark:text-gray-400 mt-2;
+}
+/* Tùy chỉnh scrollbar (tùy chọn, cho thẩm mỹ) */
+/* ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+} */
