@@ -2,7 +2,16 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
-const AuthContext = createContext({});
+const AuthContext = createContext({
+  session: null,
+  user: null,
+  isAdmin: false,
+  loading: true,
+  signUp: () => Promise.resolve(),
+  signIn: () => Promise.resolve(),
+  signOut: () => Promise.resolve(),
+  refreshUserProfile: () => Promise.resolve(),
+});
 
 export const useAuth = () => useContext(AuthContext);
 
@@ -10,7 +19,7 @@ export const AuthProvider = ({ children }) => {
   const [session, setSession] = useState(null);
   const [user, setUser] = useState(null); // user object sẽ chứa cả thông tin auth và profile
   const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true); // Luôn bắt đầu với loading = true
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     console.log('[AuthContext] useEffect mounting. Setting up listener.');
@@ -24,7 +33,7 @@ export const AuthProvider = ({ children }) => {
         // Luôn cập nhật session state
         setSession(currentSession);
 
-        // Nếu không có user, reset mọi thứ và đảm bảo loading là false
+        // Nếu không có user (đăng xuất, token hết hạn không refresh được)
         if (!currentSession?.user) {
           console.log('[AuthContext] No user in session. Resetting state.');
           setUser(null);
@@ -37,32 +46,31 @@ export const AuthProvider = ({ children }) => {
           return; // Dừng lại
         }
 
-        // Nếu có user, tiến hành fetch profile
+        // Nếu có user, tiến hành fetch profile bằng RPC function
         try {
-          console.log(`[AuthContext] Session found. Fetching profile for user: ${currentSession.user.id}`);
-          const { data: profile, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', currentSession.user.id)
-            .single();
-
-          if (error && error.code !== 'PGRST116') {
-            // Nếu có lỗi thực sự (không phải là không tìm thấy profile)
-            throw error;
-          }
+          console.log(`[AuthContext] Session found. Calling RPC get_user_profile for user: ${currentSession.user.id}`);
           
-          if (profile) {
-            console.log('[AuthContext] Profile fetched successfully:', profile);
-            setUser({ ...currentSession.user, profile: profile });
-            setIsAdmin(profile.role === 'admin');
+          // Gọi RPC function 'get_user_profile' đã tạo trên Supabase
+          const { data: profileData, error } = await supabase.rpc('get_user_profile');
+
+          if (error) throw error;
+          
+          // RPC trả về một mảng, kể cả khi chỉ có 1 kết quả.
+          // Nếu không tìm thấy, mảng sẽ rỗng.
+          const userProfile = profileData && profileData.length > 0 ? profileData[0] : null;
+
+          if (userProfile) {
+            console.log('[AuthContext] Profile fetched via RPC successfully:', userProfile);
+            setUser({ ...currentSession.user, profile: userProfile });
+            setIsAdmin(userProfile.role === 'admin');
           } else {
-            // Không tìm thấy profile, vẫn set user nhưng không có profile
-            console.warn(`[AuthContext] Profile not found for user ${currentSession.user.id}.`);
+            console.warn(`[AuthContext] Profile not found for user ${currentSession.user.id} via RPC.`);
+            // Vẫn set user từ auth, nhưng không có profile
             setUser({ ...currentSession.user, profile: null });
             setIsAdmin(false);
           }
         } catch (e) {
-          console.error('[AuthContext] CRITICAL: Failed to fetch profile. This might be an RLS issue or network error.', e);
+          console.error('[AuthContext] CRITICAL: Failed to fetch profile via RPC. This might be an RLS issue or network error.', e);
           // Nếu có lỗi nghiêm trọng, reset về trạng thái chưa đăng nhập để tránh treo
           setUser(null);
           setIsAdmin(false);
@@ -78,7 +86,7 @@ export const AuthProvider = ({ children }) => {
     );
 
     // Thêm một cơ chế "timeout" để giải cứu ứng dụng nếu onAuthStateChange không được gọi
-    // trong một khoảng thời gian hợp lý khi khởi động.
+    // hoặc bị treo trong một khoảng thời gian hợp lý khi khởi động.
     const initialLoadTimeout = setTimeout(() => {
         if (loading) {
             console.warn("[AuthContext] Timeout: onAuthStateChange took too long to fire or process. Forcing loading to false to prevent app hang.");
@@ -88,27 +96,24 @@ export const AuthProvider = ({ children }) => {
 
     // Cleanup function
     return () => {
-      console.log('[AuthContext] useEffect cleanup. Unsubscribing.');
+      console.log('[AuthContext] useEffect cleanup. Unsubscribing from auth listener.');
       clearTimeout(initialLoadTimeout); // Xóa timeout
       authListener?.subscription?.unsubscribe();
     };
-  }, []); // Dependency rỗng để chỉ chạy 1 lần
+  }, []); // Dependency array rỗng để chỉ chạy 1 lần
 
+  // Hàm để làm mới thông tin profile của user hiện tại (ví dụ sau khi user cập nhật profile)
   const refreshUserProfile = async () => {
     if (!session?.user) return;
     try {
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
-      if (error && error.code !== 'PGRST116') throw error;
-      
-      setUser(prevUser => ({ ...prevUser, profile: profile || null }));
-      setIsAdmin(profile?.role === 'admin');
-      console.log('[AuthContext] User profile manually refreshed.');
+      const { data: profileData, error } = await supabase.rpc('get_user_profile');
+      if (error) throw error;
+      const userProfile = profileData && profileData.length > 0 ? profileData[0] : null;
+      setUser(prevUser => ({ ...prevUser, profile: userProfile }));
+      setIsAdmin(userProfile?.role === 'admin');
+      console.log('[AuthContext] User profile manually refreshed via RPC.');
     } catch (err) {
-      console.error('[AuthContext] Error refreshing profile manually:', err);
+      console.error('[AuthContext] Error refreshing profile manually via RPC:', err);
     }
   };
 
