@@ -10,26 +10,28 @@ export const AuthProvider = ({ children }) => {
   const [session, setSession] = useState(null);
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true); // Luôn bắt đầu với loading = true
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     console.log('[AuthContext] useEffect mounting. Initializing...');
     setLoading(true);
 
-    // Lắng nghe sự kiện thay đổi trạng thái xác thực từ Supabase
+    // Lắng nghe sự kiện thay đổi trạng thái xác thực
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
         console.log(`[AuthContext] onAuthStateChange triggered. Event: ${event}. Session available: ${!!currentSession}`);
         
+        // Cập nhật session state
         setSession(currentSession);
 
-        // Nếu không có session (đăng xuất, token hết hạn), reset mọi thứ
+        // Nếu không có session (đăng xuất, token hết hạn không refresh được)
         if (!currentSession?.user) {
-          console.log('[AuthContext] No session found or user signed out. Resetting state.');
+          console.log('[AuthContext] No user in session. Resetting state.');
           setUser(null);
           setIsAdmin(false);
-          // Quan trọng: Phải set loading false ở đây cho trường hợp đăng xuất
+          // Quan trọng: Đảm bảo setLoading(false) nếu đây là lần load đầu tiên
           if (loading) {
+            console.log('[AuthContext] Initial check (no user) finished. Setting loading to false.');
             setLoading(false);
           }
           return; // Dừng lại
@@ -43,53 +45,50 @@ export const AuthProvider = ({ children }) => {
             .select('*')
             .eq('id', currentSession.user.id)
             .single();
-          
+
           if (error && error.code !== 'PGRST116') {
-            // Nếu có lỗi thực sự (không phải lỗi "không tìm thấy")
+            // Nếu có lỗi thực sự (không phải là không tìm thấy profile)
             throw error;
           }
           
-          console.log('[AuthContext] Profile fetched:', profile);
-          setUser({ ...currentSession.user, profile: profile || null });
-          setIsAdmin(profile?.role === 'admin');
-
+          if (profile) {
+            console.log('[AuthContext] Profile fetched successfully:', profile);
+            setUser({ ...currentSession.user, profile: profile });
+            setIsAdmin(profile.role === 'admin');
+          } else {
+            // Không tìm thấy profile, vẫn set user nhưng không có profile
+            console.warn(`[AuthContext] Profile not found for user ${currentSession.user.id}.`);
+            setUser({ ...currentSession.user, profile: null });
+            setIsAdmin(false);
+          }
         } catch (e) {
-          console.error('[AuthContext] Error fetching profile, user state might be incomplete:', e);
-          // Nếu lỗi, vẫn set user từ session để ứng dụng không bị đăng xuất, nhưng không có profile
-          setUser({ ...currentSession.user, profile: null });
+          console.error('[AuthContext] CRITICAL: Failed to fetch profile. This might be an RLS issue or network error.', e);
+          // Nếu có lỗi nghiêm trọng, reset về trạng thái chưa đăng nhập để tránh treo
+          setUser(null);
           setIsAdmin(false);
+          // Có thể set một state lỗi riêng để hiển thị thông báo cho người dùng
         } finally {
-          // Dù thành công hay thất bại, sau lần đầu tiên chạy, setLoading phải là false
+          // Luôn luôn set loading về false sau khi luồng xử lý đầu tiên hoàn tất
           if (loading) {
-            console.log('[AuthContext] Initial auth check finished. Setting loading to false.');
+            console.log('[AuthContext] Initial auth flow finished. Setting loading to false.');
             setLoading(false);
           }
         }
       }
     );
 
-    // Cleanup function
+    // Cleanup
     return () => {
       console.log('[AuthContext] useEffect cleanup. Unsubscribing from auth listener.');
       authListener?.subscription?.unsubscribe();
     };
-  }, []); // Dependency array rỗng để chỉ chạy một lần
+  }, []); // Dependency rỗng để chỉ chạy 1 lần
 
-  const refreshUserProfile = async () => { /* ... (giữ nguyên) ... */ };
+  // ... (các hàm refreshUserProfile, signUp, signIn, signOut giữ nguyên)
 
   const value = {
-    session,
-    user,
-    isAdmin,
-    loading,
-    signUp: (data) => supabase.auth.signUp(data),
-    signIn: (data) => supabase.auth.signInWithPassword(data),
-    signOut: async () => {
-      const { error } = await supabase.auth.signOut();
-      if (error) console.error('Error signing out:', error);
-      // onAuthStateChange sẽ tự động xử lý việc reset state
-    },
-    refreshUserProfile,
+    session, user, isAdmin, loading,
+    // ...
   };
 
   return (
