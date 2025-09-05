@@ -21,23 +21,19 @@ export const AuthProvider = ({ children }) => {
       async (event, currentSession) => {
         console.log(`[AuthContext] onAuthStateChange triggered. Event: ${event}. Session available: ${!!currentSession}`);
         
-        // Cập nhật session state
         setSession(currentSession);
 
-        // Nếu không có session (đăng xuất, token hết hạn không refresh được)
         if (!currentSession?.user) {
           console.log('[AuthContext] No user in session. Resetting state.');
           setUser(null);
-          setIsAdmin(false);
-          // Quan trọng: Đảm bảo setLoading(false) nếu đây là lần load đầu tiên
+setIsAdmin(false);
           if (loading) {
             console.log('[AuthContext] Initial check (no user) finished. Setting loading to false.');
             setLoading(false);
           }
-          return; // Dừng lại
+          return;
         }
 
-        // Nếu có session, tiến hành fetch profile
         try {
           console.log(`[AuthContext] Session found. Fetching profile for user: ${currentSession.user.id}`);
           const { data: profile, error } = await supabase
@@ -47,7 +43,6 @@ export const AuthProvider = ({ children }) => {
             .single();
 
           if (error && error.code !== 'PGRST116') {
-            // Nếu có lỗi thực sự (không phải là không tìm thấy profile)
             throw error;
           }
           
@@ -56,19 +51,15 @@ export const AuthProvider = ({ children }) => {
             setUser({ ...currentSession.user, profile: profile });
             setIsAdmin(profile.role === 'admin');
           } else {
-            // Không tìm thấy profile, vẫn set user nhưng không có profile
             console.warn(`[AuthContext] Profile not found for user ${currentSession.user.id}.`);
             setUser({ ...currentSession.user, profile: null });
             setIsAdmin(false);
           }
         } catch (e) {
-          console.error('[AuthContext] CRITICAL: Failed to fetch profile. This might be an RLS issue or network error.', e);
-          // Nếu có lỗi nghiêm trọng, reset về trạng thái chưa đăng nhập để tránh treo
+          console.error('[AuthContext] CRITICAL: Failed to fetch profile.', e);
           setUser(null);
           setIsAdmin(false);
-          // Có thể set một state lỗi riêng để hiển thị thông báo cho người dùng
         } finally {
-          // Luôn luôn set loading về false sau khi luồng xử lý đầu tiên hoàn tất
           if (loading) {
             console.log('[AuthContext] Initial auth flow finished. Setting loading to false.');
             setLoading(false);
@@ -77,18 +68,43 @@ export const AuthProvider = ({ children }) => {
       }
     );
 
-    // Cleanup
     return () => {
       console.log('[AuthContext] useEffect cleanup. Unsubscribing from auth listener.');
       authListener?.subscription?.unsubscribe();
     };
-  }, []); // Dependency rỗng để chỉ chạy 1 lần
+  }, []);
 
-  // ... (các hàm refreshUserProfile, signUp, signIn, signOut giữ nguyên)
+  const refreshUserProfile = async () => {
+    if (!session?.user) return;
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+      if (error && error.code !== 'PGRST116') throw error;
+      setUser(prevUser => ({ ...prevUser, profile: profile }));
+      setIsAdmin(profile?.role === 'admin');
+      console.log('[AuthContext] User profile manually refreshed.');
+    } catch (err) {
+      console.error('[AuthContext] Error refreshing profile manually:', err);
+    }
+  };
 
+  // *** ĐÂY LÀ PHẦN QUAN TRỌNG CẦN KIỂM TRA ***
   const value = {
-    session, user, isAdmin, loading,
-    // ...
+    session,
+    user,
+    isAdmin,
+    loading,
+    // Đảm bảo các hàm này được định nghĩa và export đúng
+    signUp: (data) => supabase.auth.signUp(data),
+    signIn: (data) => supabase.auth.signInWithPassword(data),
+    signOut: async () => {
+      const { error } = await supabase.auth.signOut();
+      if (error) console.error('Error signing out:', error);
+    },
+    refreshUserProfile,
   };
 
   return (
