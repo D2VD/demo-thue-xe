@@ -1,5 +1,4 @@
 // src/pages/client/LoginPage.jsx
-// ... (imports giữ nguyên như code hoàn chỉnh đã cung cấp trước đó)
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
@@ -7,66 +6,77 @@ import Input from '../../components/common/Input';
 import Button from '../../components/common/Button';
 import { LockClosedIcon, EnvelopeIcon } from '@heroicons/react/24/outline';
 
-
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(''); // Đảm bảo setError là một hàm state
   const [loading, setLoading] = useState(false);
-  const { signIn } = useAuth();
+  const { signIn } = useAuth(); // Đảm bảo signIn là một hàm
   const navigate = useNavigate();
   const location = useLocation();
   const from = location.state?.from?.pathname || "/";
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    setError(''); // Reset lỗi
     setLoading(true);
+
+    // Kiểm tra lại xem signIn có phải là hàm không trước khi gọi
+    if (typeof signIn !== 'function') {
+        console.error("signIn from useAuth() is not a function!");
+        setError("Lỗi hệ thống: Chức năng đăng nhập không khả dụng.");
+        setLoading(false);
+        return;
+    }
+
     try {
       const { error: signInError } = await signIn({ email, password });
+
       if (signInError) {
-        if (signInError.message === "Invalid login credentials") {
-            setError("Email hoặc mật khẩu không đúng. Vui lòng thử lại.");
-        } else if (signInError.message.includes("Email not confirmed")) {
-            setError("Vui lòng xác thực email của bạn trước khi đăng nhập.");
-        } else {
-            setError(signInError.message || 'Đã có lỗi xảy ra khi đăng nhập.');
-        }
-        console.error("Login error object:", signInError);
-        return;
+        // Ném lỗi để catch block xử lý
+        throw signInError;
       }
+      
+      // Nếu không có lỗi, điều hướng
       navigate(from, { replace: true });
+
     } catch (err) {
-      setError(err.message || 'Đã có lỗi xảy ra. Vui lòng thử lại.');
-      console.error("Unexpected login error:", err);
+      console.error("Unexpected login error:", err); // Log lỗi đầy đủ ra console
+      
+      // Xử lý các thông báo lỗi thân thiện hơn
+      if (err.message.includes("Invalid login credentials")) {
+        setError("Email hoặc mật khẩu không đúng. Vui lòng thử lại.");
+      } else if (err.message.includes("Email not confirmed")) {
+        setError("Vui lòng xác thực email của bạn trước khi đăng nhập.");
+      } else {
+        setError(err.message || 'Đã có lỗi không mong muốn xảy ra.');
+      }
     } finally {
-      setLoading(false); // Đã có ở phiên bản trước
+      setLoading(false);
     }
   };
 
   return (
-    // SỬA LỖI LỆCH FORM: Thêm w-screen
-    <div className="flex flex-col items-center justify-center min-h-screen w-screen bg-neutral-light py-12 px-4 sm:px-6 lg:px-8">
-      {/* BOX CHỨA FORM - Thêm mx-auto để chắc chắn hơn nữa */}
-      <div className="max-w-md w-full space-y-8 p-8 sm:p-10 bg-white shadow-xl rounded-xl mx-auto">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-neutral-light py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8 p-10 bg-white shadow-xl rounded-xl">
         <div>
-          <Link to="/" className="flex justify-center"> {/* Căn giữa logo/tên trang */}
-            {/* Bạn có thể thay bằng logo hình ảnh nếu muốn */}
-            <h2 className="text-3xl font-extrabold text-primary-green">
+          <Link to="/">
+            <h2 className="mt-6 text-center text-3xl font-extrabold text-primary-green">
               THUÊ XE ONLINE
             </h2>
           </Link>
-          <h3 className="mt-4 text-center text-xl font-bold text-gray-800">
+          <h3 className="mt-2 text-center text-xl font-bold text-gray-800">
             Đăng Nhập Tài Khoản
           </h3>
         </div>
-        {/* ... (phần error và form giữ nguyên như code hoàn chỉnh đã cung cấp trước đó) ... */}
+        
         {error && (
-          <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-3 my-3 rounded-md text-sm" role="alert">
-            <p className="font-semibold">Lỗi Đăng Nhập</p>
+          <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
+            <p className="font-bold">Lỗi Đăng Nhập</p>
             <p>{error}</p>
           </div>
         )}
+
         <form onSubmit={handleSubmit} className="mt-8 space-y-6">
           <Input
             label="Địa chỉ Email"
@@ -90,16 +100,19 @@ export default function LoginPage() {
             required
             icon={<LockClosedIcon className="h-5 w-5 text-gray-400" />}
           />
+
           <div className="flex items-center justify-end text-sm">
-            <a href="#" className="font-medium text-primary-green hover:text-primary-green-dark">
+            <Link to="/forgot-password" className="font-medium text-primary-green hover:text-primary-green-dark">
               Quên mật khẩu?
-            </a>
+            </Link>
           </div>
-          <Button type="submit" isLoading={loading} disabled={loading} className="w-full py-3 text-base">
+
+          <Button type="submit" isLoading={loading} disabled={loading} className="w-full">
             {loading ? 'Đang xử lý...' : 'Đăng Nhập'}
           </Button>
         </form>
-        <p className="mt-8 text-center text-sm text-gray-600">
+
+        <p className="mt-6 text-center text-sm text-gray-600">
           Chưa có tài khoản?{' '}
           <Link to="/register" className="font-medium text-primary-green hover:text-primary-green-dark">
             Đăng ký ngay
