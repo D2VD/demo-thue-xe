@@ -1,179 +1,211 @@
-// src/contexts/AuthContext.jsx - Phiên bản sửa lỗi
-import React, { createContext, useState, useEffect, useContext } from 'react';
-import { supabase } from '../lib/supabaseClient';
+// AuthContext.jsx
+// Fully-featured authentication context for a React + Vite + Supabase app.
+// - Persists session across refreshes (requires persistSession: true in supabaseClient)
+// - Exposes { session, user, profile, loading } and helpers
+// - Optional <RequireAuth> guard waits for hydration to avoid redirecting too early
+//
+// NOTE: Adjust the import path for supabase client to match your project structure.
 
-const AuthContext = createContext({});
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { supabase } from '../lib/supabaseClient' // <-- change if your path is different
+// If you prefer '@/lib/supabaseClient', ensure your Vite alias is configured.
 
-export const useAuth = () => useContext(AuthContext);
+/**
+ * @typedef {Object} AuthContextShape
+ * @property {import('@supabase/supabase-js').Session|null} session
+ * @property {import('@supabase/supabase-js').User|null} user
+ * @property {any|null} profile
+ * @property {boolean} loading
+ * @property {(email:string, password:string) => Promise<any>} signInWithPassword
+ * @property {(email:string) => Promise<any>} signInWithOtp
+ * @property {(provider: import('@supabase/supabase-js').Provider, options?: any) => Promise<any>} signInWithProvider
+ * @property {() => Promise<void>} signOut
+ * @property {() => Promise<any>} refreshSession
+ * @property {() => Promise<void>|null} reloadProfile
+ */
 
-export const AuthProvider = ({ children }) => {
-  const [session, setSession] = useState(null);
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
+const AuthContext = createContext(
+  /** @type {AuthContextShape} */ ({
+    session: null,
+    user: null,
+    profile: null,
+    loading: true,
+    signInWithPassword: async () => {},
+    signInWithOtp: async () => {},
+    signInWithProvider: async () => {},
+    signOut: async () => {},
+    refreshSession: async () => {},
+    reloadProfile: () => null,
+  })
+)
+
+export const useAuth = () => useContext(AuthContext)
+
+/**
+ * Fetch user profile from 'profiles' table.
+ * Your table should have a row where id === auth.uid().
+ * Adjust the select columns as needed.
+ * @param {string} uid
+ */
+async function fetchProfile(uid) {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', uid)
+      .single()
+
+    if (error) {
+      // PGRST116 = No rows found for single()
+      if (error.code !== 'PGRST116') console.warn('[AuthContext] fetchProfile error:', error)
+      return null
+    }
+    return data ?? null
+  } catch (e) {
+    console.warn('[AuthContext] fetchProfile exception:', e)
+    return null
+  }
+}
+
+export function AuthProvider({ children }) {
+  const [session, setSession] = useState(null)
+  const [user, setUser] = useState(null)
+  const [profile, setProfile] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    console.log('[AuthContext] Initializing...');
-    
-    // Lấy session hiện tại trước
-    const initializeAuth = async () => {
+    let mounted = true
+
+    const init = async () => {
       try {
-        // Get initial session
-        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          console.error('[AuthContext] Error getting initial session:', error);
-          // Không set null ngay, có thể chỉ là network issue
+        const { data, error } = await supabase.auth.getSession()
+        if (error) console.warn('[AuthContext] getSession error:', error)
+        if (!mounted) return
+
+        const sess = data?.session ?? null
+        setSession(sess)
+        setUser(sess?.user ?? null)
+
+        if (sess?.user) {
+          const p = await fetchProfile(sess.user.id)
+          if (mounted) setProfile(p)
         }
-        
-        if (initialSession) {
-          console.log('[AuthContext] Found existing session');
-          await handleSessionChange('INITIAL', initialSession);
-        } else {
-          console.log('[AuthContext] No existing session found');
-          setLoading(false);
-        }
-      } catch (error) {
-        console.error('[AuthContext] Error in initializeAuth:', error);
-        setLoading(false);
-      }
-    };
-
-    // Handler riêng cho session changes
-    const handleSessionChange = async (event, currentSession) => {
-      console.log(`[AuthContext] Session change: ${event}`);
-      
-      setSession(currentSession);
-
-      if (!currentSession?.user) {
-        setUser(null);
-        setIsAdmin(false);
-        setLoading(false);
-        return;
-      }
-
-      try {
-        // Retry logic cho việc fetch profile
-        let retries = 3;
-        let profile = null;
-        let lastError = null;
-
-        while (retries > 0 && !profile) {
-          try {
-            const { data, error } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', currentSession.user.id)
-              .single();
-
-            if (!error && data) {
-              profile = data;
-              break;
-            }
-            lastError = error;
-          } catch (e) {
-            lastError = e;
-          }
-          
-          retries--;
-          if (retries > 0 && !profile) {
-            // Wait before retry
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-        }
-
-        if (profile) {
-          console.log('[AuthContext] Profile fetched successfully:', profile);
-          setUser({ ...currentSession.user, profile });
-          setIsAdmin(profile.role === 'admin');
-        } else {
-          // QUAN TRỌNG: Vẫn giữ user với session data, không set null
-          console.warn('[AuthContext] Could not fetch profile, but keeping session:', lastError);
-          setUser({ ...currentSession.user, profile: null });
-          setIsAdmin(false);
-        }
-      } catch (error) {
-        console.error('[AuthContext] Error handling session:', error);
-        // Vẫn giữ session user, không set null
-        setUser({ ...currentSession.user, profile: null });
-        setIsAdmin(false);
+      } catch (e) {
+        console.warn('[AuthContext] init exception:', e)
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false)
       }
-    };
+    }
 
-    // Initialize first
-    initializeAuth();
+    init()
 
-    // Then setup listener
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        // Skip initial event vì đã handle ở trên
-        if (event !== 'INITIAL_SESSION') {
-          handleSessionChange(event, session);
-        }
+    // Subscribe to auth state changes (sign in/out, token refresh, user updated)
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, sess) => {
+      // console.debug('[AuthContext] onAuthStateChange:', event, sess)
+      setSession(sess)
+      setUser(sess?.user ?? null)
+
+      if (sess?.user) {
+        const p = await fetchProfile(sess.user.id)
+        setProfile(p)
+      } else {
+        setProfile(null)
       }
-    );
+    })
 
     return () => {
-      authListener?.subscription?.unsubscribe();
-    };
-  }, []);
-
-  // Refresh profile function với retry
-  const refreshUserProfile = async () => {
-    if (!session?.user) return;
-    
-    try {
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
-        
-      if (!error && profile) {
-        setUser(prevUser => ({ ...prevUser, profile }));
-        setIsAdmin(profile?.role === 'admin');
-        console.log('[AuthContext] Profile refreshed successfully');
-      }
-    } catch (err) {
-      console.error('[AuthContext] Error refreshing profile:', err);
-      // Không set null ở đây
+      mounted = false
+      sub.subscription?.unsubscribe?.()
     }
-  };
+  }, [])
+
+  // -------- Auth helpers -------- //
+  const signInWithPassword = async (email, password) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw error
+    // State will also sync via onAuthStateChange, but set immediately for snappier UX
+    setSession(data.session ?? null)
+    setUser(data.user ?? data.session?.user ?? null)
+    if (data.user ?? data.session?.user) {
+      const uid = (data.user ?? data.session?.user).id
+      const p = await fetchProfile(uid)
+      setProfile(p)
+    }
+    return data
+  }
+
+  const signInWithOtp = async (email) => {
+    const { data, error } = await supabase.auth.signInWithOtp({ email })
+    if (error) throw error
+    return data
+  }
+
+  const signInWithProvider = async (provider, options = {}) => {
+    const { data, error } = await supabase.auth.signInWithOAuth({ provider, options })
+    if (error) throw error
+    return data
+  }
 
   const signOut = async () => {
-    try {
-      // Clear local state first
-      setUser(null);
-      setSession(null);
-      setIsAdmin(false);
-      
-      // Then sign out from Supabase
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      
-      // Clear any remaining storage
-      localStorage.removeItem('supabase.auth.token');
-    } catch (error) {
-      console.error('Error signing out:', error);
+    // Do NOT manually remove localStorage keys; supabase handles that.
+    const { error } = await supabase.auth.signOut()
+    if (error) throw error
+    setSession(null)
+    setUser(null)
+    setProfile(null)
+  }
+
+  const refreshSession = async () => {
+    const { data, error } = await supabase.auth.refreshSession()
+    if (error) throw error
+    setSession(data.session ?? null)
+    setUser(data.user ?? data.session?.user ?? null)
+    if (data.user ?? data.session?.user) {
+      const uid = (data.user ?? data.session?.user).id
+      const p = await fetchProfile(uid)
+      setProfile(p)
     }
-  };
+    return data
+  }
 
-  const value = {
-    session,
-    user,
-    isAdmin,
-    loading,
-    signUp: (data) => supabase.auth.signUp(data),
-    signIn: (data) => supabase.auth.signInWithPassword(data),
-    signOut,
-    refreshUserProfile,
-  };
+  const reloadProfile = async () => {
+    if (!user) return null
+    const p = await fetchProfile(user.id)
+    setProfile(p)
+  }
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
-};
+  const value = useMemo(
+    () => ({
+      session,
+      user,
+      profile,
+      loading,
+      signInWithPassword,
+      signInWithOtp,
+      signInWithProvider,
+      signOut,
+      refreshSession,
+      reloadProfile,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session, user, profile, loading]
+  )
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+// ---------- Optional: Protected Route helper ----------
+// Only include this if you use react-router-dom in your app.
+export function RequireAuth({ children, fallback = null }) {
+  // fallback can be a loader element while waiting for hydration
+  const { loading, session } = useAuth()
+  if (loading) return fallback ?? <div className="p-4">Đang tải…</div>
+  if (!session) {
+    // Lazy import to avoid hard dependency if react-router-dom not installed
+    const Navigate = require('react-router-dom').Navigate
+    return <Navigate to="/login" replace />
+  }
+  return children
+}
+
+export default AuthProvider
